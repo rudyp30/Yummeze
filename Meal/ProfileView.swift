@@ -12,7 +12,7 @@ struct ProfileView: View {
 
 private struct ProfileHome: View {
     @Environment(\.theme) private var theme
-    @Environment(ProfileStore.self) private var profile
+    @Environment(SessionStore.self) private var session
     @Query private var meals: [Meal]
 
     var body: some View {
@@ -71,7 +71,7 @@ private struct ProfileHome: View {
     private var header: some View {
         VStack(spacing: 6) {
             avatar
-            Text(profile.displayName)
+            Text(session.displayName)
                 .font(.title2.weight(.bold))
                 .foregroundStyle(theme.base)
             if let since = sinceText {
@@ -84,19 +84,8 @@ private struct ProfileHome: View {
     }
 
     private var avatar: some View {
-        ZStack {
-            Circle().fill(theme.accent)
-            if let filename = profile.avatarFilename {
-                LoadedImage(filename: filename, targetPoints: 80) { Color.clear }
-            } else {
-                Text(profile.initial)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(theme.onAccent)
-            }
-        }
-        .frame(width: 76, height: 76)
-        .clipShape(Circle())
-        .accessibilityHidden(true)   // the display name is read as text below
+        AvatarView(urlString: session.avatarURL, initial: session.initial, diameter: 76)
+            .accessibilityHidden(true)   // the display name is read as text below
     }
 
     private var sinceText: String? {

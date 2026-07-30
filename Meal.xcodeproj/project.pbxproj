@@ -100,13 +100,13 @@
 			);
 			mainGroup = 8C6049822FF6E17B004FEA70;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA0000000000000000000002 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8C60498C2FF6E17B004FEA70 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			packageReferences = (
-				AA0000000000000000000002 /* XCRemoteSwiftPackageReference "supabase-swift" */,
-			);
 			targets = (
 				8C60498A2FF6E17B004FEA70 /* Meal */,
 			);

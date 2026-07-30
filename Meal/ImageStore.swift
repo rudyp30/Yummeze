@@ -37,6 +37,13 @@ enum ImageStore {
         }
     }
 
+    /// A downscaled JPEG suitable for uploading (e.g. a cloud avatar). Purely an
+    /// in-memory encode — nothing is written to disk. Defaults are sized for a
+    /// profile photo, not a full meal image.
+    static func jpegData(from image: UIImage, maxDimension: CGFloat = 512, quality: CGFloat = 0.8) -> Data? {
+        downscaled(image, maxDimension: maxDimension).jpegData(compressionQuality: quality)
+    }
+
     // MARK: - Load
 
     /// Decodes the image at (about) `maxPixelSize` pixels on its longest edge,

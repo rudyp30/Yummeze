@@ -3,7 +3,7 @@ import PhotosUI
 
 struct SettingsView: View {
     @Environment(\.theme) private var theme
-    @Environment(ProfileStore.self) private var profile
+    @Environment(SessionStore.self) private var session
     @AppStorage("selectedThemeID") private var selectedThemeID = Theme.cozyCream.id
 
     @State private var editingName = false
@@ -11,13 +11,18 @@ struct SettingsView: View {
     @State private var showingSourceDialog = false
     @State private var showingCamera = false
     @State private var showingLibrary = false
+    @State private var showingSignOutConfirm = false
     @State private var pickerItem: PhotosPickerItem?
+
+    @State private var isWorking = false
+    @State private var errorMessage: String?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 appearanceSection
                 profileSection
+                accountSection
             }
             .padding(16)
         }
@@ -26,13 +31,17 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .tint(theme.accent)
+        .disabled(isWorking)
+        .overlay { if isWorking { workingOverlay } }
         .confirmationDialog("Profile photo", isPresented: $showingSourceDialog, titleVisibility: .visible) {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button("Take Photo") { showingCamera = true }
             }
             Button("Choose from Library") { showingLibrary = true }
-            if profile.avatarFilename != nil {
-                Button("Remove Photo", role: .destructive) { profile.setAvatar(filename: nil) }
+            if session.avatarURL != nil {
+                Button("Remove Photo", role: .destructive) {
+                    run { try await session.removeAvatar() }
+                }
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -54,8 +63,38 @@ struct SettingsView: View {
         .alert("Display name", isPresented: $editingName) {
             TextField("Name", text: $nameDraft)
             Button("Cancel", role: .cancel) {}
-            Button("Save") { profile.setDisplayName(nameDraft) }
+            Button("Save") {
+                let name = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return }
+                run { try await session.updateDisplayName(name) }
+            }
         }
+        .alert("Couldn't save", isPresented: errorAlertBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "Please try again.")
+        }
+        .confirmationDialog("Sign out of Yummeze?", isPresented: $showingSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) {
+                run { try await session.signOut() }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })
+    }
+
+    private var workingOverlay: some View {
+        ZStack {
+            theme.base.opacity(0.08).ignoresSafeArea()
+            ProgressView()
+                .tint(theme.accent)
+                .padding(20)
+                .background(theme.card, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .accessibilityLabel("Saving")
     }
 
     // MARK: Appearance
@@ -126,11 +165,11 @@ struct SettingsView: View {
             sectionTitle("Profile")
             VStack(spacing: 0) {
                 Button {
-                    nameDraft = profile.displayName
+                    nameDraft = session.displayName
                     editingName = true
                 } label: {
                     settingRow(label: "Display name") {
-                        Text(profile.displayName).foregroundStyle(theme.secondaryText)
+                        Text(session.displayName).foregroundStyle(theme.secondaryText)
                         chevron
                     }
                 }
@@ -147,24 +186,45 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(.plain)
+
+                if let username = session.username {
+                    rowDivider
+                    settingRow(label: "Username") {
+                        Text("@\(username)").foregroundStyle(theme.secondaryText)
+                    }
+                }
             }
             .background(theme.card, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
     private var avatarThumb: some View {
-        ZStack {
-            Circle().fill(theme.accent)
-            if let filename = profile.avatarFilename {
-                LoadedImage(filename: filename, targetPoints: 30) { Color.clear }
-            } else {
-                Text(profile.initial)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.onAccent)
+        AvatarView(urlString: session.avatarURL, initial: session.initial, diameter: 26)
+    }
+
+    // MARK: Account
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            sectionTitle("Account")
+            Button {
+                showingSignOutConfirm = true
+            } label: {
+                HStack {
+                    Text("Sign out")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.errorText)
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .background(theme.card, in: RoundedRectangle(cornerRadius: 14))
+            .accessibilityLabel("Sign out")
+            .accessibilityAddTraits(.isButton)
         }
-        .frame(width: 26, height: 26)
-        .clipShape(Circle())
     }
 
     // MARK: Bits
@@ -204,9 +264,24 @@ struct SettingsView: View {
         Rectangle().fill(theme.secondaryText.opacity(0.1)).frame(height: 0.5).padding(.leading, 14)
     }
 
-    private func saveAvatar(_ image: UIImage) {
-        if let filename = ImageStore.save(image) {
-            profile.setAvatar(filename: filename)
+    // MARK: Actions
+
+    /// Runs a cloud write with a working indicator and surfaces any failure in
+    /// the error alert. Keeps every networked settings action consistent.
+    private func run(_ work: @escaping () async throws -> Void) {
+        Task {
+            isWorking = true
+            defer { isWorking = false }
+            do { try await work() }
+            catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
         }
+    }
+
+    private func saveAvatar(_ image: UIImage) {
+        guard let data = ImageStore.jpegData(from: image) else {
+            errorMessage = "Couldn't process that photo."
+            return
+        }
+        run { try await session.changeAvatar(data) }
     }
 }

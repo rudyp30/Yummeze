@@ -6,7 +6,7 @@ struct MealCard: View {
     let meal: Meal
 
     @Environment(\.theme) private var theme
-    @Environment(ProfileStore.self) private var profile
+    @Environment(SessionStore.self) private var session
     @State private var liked = false
 
     var body: some View {
@@ -43,18 +43,14 @@ struct MealCard: View {
     }
 
     private var avatarView: some View {
-        ZStack {
-            Circle().fill(theme.background)
-            if isCurrentUser, let filename = profile.avatarFilename {
-                LoadedImage(filename: filename, targetPoints: 36) { Color.clear }
-            } else {
-                Text(initial)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.secondaryText)
-            }
-        }
-        .frame(width: 32, height: 32)
-        .clipShape(Circle())
+        // The current user's avatar comes from their cloud profile. Other
+        // authors fall back to a monogram until meals carry their profile
+        // (Stage C) — that's the seam a real per-author lookup slots into.
+        AvatarView(
+            urlString: isCurrentUser ? session.avatarURL : nil,
+            initial: initial,
+            diameter: 32
+        )
     }
 
     private var typePill: some View {
@@ -147,9 +143,8 @@ struct MealCard: View {
 
     @ViewBuilder private var captionLine: some View {
         if !meal.caption.isEmpty {
-            (Text(authorName).font(.subheadline.weight(.semibold))
-             + Text(" ")
-             + Text(meal.caption).font(.subheadline))
+            Text("\(Text(authorName).fontWeight(.semibold)) \(meal.caption)")
+                .font(.subheadline)
                 .foregroundStyle(theme.base)
                 .accessibilityHidden(true)   // folded into the card's combined label
         }
@@ -157,13 +152,13 @@ struct MealCard: View {
 
     // MARK: Derived
 
-    /// The current device user is "me" — resolve their name/photo from the local
-    /// ProfileStore. Other authors (once the sync layer lands) fall back to their
-    /// id for now; that's the seam a real profile lookup slots into later.
+    /// The current device user is "me" — resolve their name/photo from the cloud
+    /// profile via SessionStore. Other authors (once meals sync) fall back to
+    /// their id for now; that's the seam a real profile lookup slots into later.
     private var isCurrentUser: Bool { meal.authorID == "me" }
 
     private var authorName: String {
-        isCurrentUser ? profile.displayName : meal.authorID
+        isCurrentUser ? session.displayName : meal.authorID
     }
 
     private var initial: String {
